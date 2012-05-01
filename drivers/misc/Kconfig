@@ -636,4 +636,17 @@ config TOUCH_WAKE
 config TOUCH_WAKE_DEFAULT_ENABLED
       bool "Enable Touch Wake by default"
       depends on TOUCH_WAKE
+
+config LIVE_OC
+       bool "Support for Live OC"
+       default y
+       help
+         Say Y here to enable Live OC
+
+config CUSTOM_VOLTAGE
+       bool "Support for Custom Voltage"
+       default y
+       help
+         Say Y here to enable Custom Voltage
+
 endif # MISC_DEVICES
