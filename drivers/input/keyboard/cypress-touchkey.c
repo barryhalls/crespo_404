@@ -32,6 +32,15 @@
 #ifdef CONFIG_GENERIC_BLN
 #include <linux/bln.h>
 #endif
+
+#ifdef CONFIG_BLD
+#include <linux/bld.h>
+#endif
+
+#ifdef CONFIG_TOUCH_WAKE
+#include <linux/touch_wake.h>
+#endif
+
 #define SCANCODE_MASK		0x07
 #define UPDOWN_EVENT_MASK	0x08
 #define ESD_STATE_MASK		0x10
@@ -61,6 +70,15 @@ struct cypress_touchkey_devdata {
 #ifdef CONFIG_GENERIC_BLN
 static struct cypress_touchkey_devdata *blndevdata;
 #endif
+
+#ifdef CONFIG_BLD
+static struct cypress_touchkey_devdata *blddevdata;
+#endif
+
+#ifdef CONFIG_TOUCH_WAKE
+static struct cypress_touchkey_devdata *touchwakedevdata;
+#endif
+
 static int i2c_touchkey_read_byte(struct cypress_touchkey_devdata *devdata,
 					u8 *val)
 {
@@ -175,14 +193,52 @@ static irqreturn_t touchkey_interrupt_thread(int irq, void *touchkey_devdata)
 				"range\n", __func__);
 			goto err;
 		}
-		input_report_key(devdata->input_dev,
-			devdata->pdata->keycode[scancode],
-			!(data & UPDOWN_EVENT_MASK));
-	} else {
-		for (i = 0; i < devdata->pdata->keycode_cnt; i++)
+
+#ifdef CONFIG_TOUCH_WAKE
+		if (!device_is_suspended())
+#endif
+		    {
 			input_report_key(devdata->input_dev,
-				devdata->pdata->keycode[i],
-				!!(data & (1U << i)));
+					 devdata->pdata->keycode[scancode],
+					 !(data & UPDOWN_EVENT_MASK));
+		    }
+#if defined(CONFIG_TOUCH_WAKE) || defined(CONFIG_BLD)
+		if (!(data & UPDOWN_EVENT_MASK))
+		    {
+#ifdef CONFIG_BLD			
+			touchkey_pressed();
+#endif
+#ifdef CONFIG_TOUCH_WAKE
+			touch_press();
+#endif
+		    }
+#endif
+	} else {
+#ifdef CONFIG_TOUCH_WAKE
+		if (!device_is_suspended())
+#endif
+		    {
+			for (i = 0; i < devdata->pdata->keycode_cnt; i++)
+			    input_report_key(devdata->input_dev,
+					     devdata->pdata->keycode[i],
+					     !!(data & (1U << i)));
+		    }
+
+#if defined(CONFIG_TOUCH_WAKE) || defined(CONFIG_BLD)
+		for (i = 0; i < devdata->pdata->keycode_cnt; i++)
+		    {
+			if(!!(data & (1U << i)))
+			    {
+#ifdef CONFIG_BLD			
+				touchkey_pressed();
+#endif
+#ifdef CONFIG_TOUCH_WAKE
+				touch_press();
+#endif
+				break;
+			    }
+		    }
+#endif
 	}
 
 	input_sync(devdata->input_dev);
@@ -209,6 +265,9 @@ static void cypress_touchkey_early_suspend(struct early_suspend *h)
 	struct cypress_touchkey_devdata *devdata =
 		container_of(h, struct cypress_touchkey_devdata, early_suspend);
 
+#ifdef CONFIG_TOUCH_WAKE
+	i2c_touchkey_write_byte(devdata, devdata->backlight_off);
+#else
 	devdata->is_powering_on = true;
 
 	if (unlikely(devdata->is_dead))
@@ -230,6 +289,7 @@ static void cypress_touchkey_early_suspend(struct early_suspend *h)
 #endif
 
 	all_keys_up(devdata);
+#endif
 }
 
 static void cypress_touchkey_early_resume(struct early_suspend *h)
@@ -237,6 +297,9 @@ static void cypress_touchkey_early_resume(struct early_suspend *h)
 	struct cypress_touchkey_devdata *devdata =
 		container_of(h, struct cypress_touchkey_devdata, early_suspend);
 
+#ifdef CONFIG_TOUCH_WAKE
+	i2c_touchkey_write_byte(devdata, devdata->backlight_on);
+#else
 	devdata->pdata->touchkey_onoff(TOUCHKEY_ON);
 	if (i2c_touchkey_write_byte(devdata, devdata->backlight_on)) {
 		devdata->is_dead = true;
@@ -248,6 +311,7 @@ static void cypress_touchkey_early_resume(struct early_suspend *h)
 	devdata->is_dead = false;
 	enable_irq(devdata->client->irq);
 	devdata->is_powering_on = false;
+#endif
 }
 #endif
 
@@ -596,6 +660,17 @@ static int cypress_touchkey_probe(struct i2c_client *client,
 	blndevdata = devdata;
 	register_bln_implementation(&cypress_touchkey_bln);
 #endif
+
+#ifdef CONFIG_BLD
+	blddevdata = devdata;
+	register_bld_implementation(&cypress_touchkey_bld);
+#endif
+
+#ifdef CONFIG_TOUCH_WAKE
+	touchwakedevdata = devdata;
+	register_touchwake_implementation(&cypress_touchwake);
+#endif
+
 	return 0;
 
 err_req_irq:
